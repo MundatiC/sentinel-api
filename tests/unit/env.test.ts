@@ -1,0 +1,30 @@
+import { describe, expect, it } from 'vitest';
+import { parseEnv } from '../../src/config/env.js';
+
+const base = { DATABASE_URL: 'postgresql://u:p@localhost:5432/db' };
+
+describe('parseEnv', () => {
+  it('applies defaults', () => {
+    const env = parseEnv(base);
+    expect(env.PORT).toBe(4000);
+    expect(env.NODE_ENV).toBe('development');
+    expect(env.CORS_ORIGINS).toEqual(['http://localhost:3000']);
+  });
+
+  it('splits and trims CORS origins', () => {
+    const env = parseEnv({ ...base, CORS_ORIGINS: ' https://a.com , https://b.com ' });
+    expect(env.CORS_ORIGINS).toEqual(['https://a.com', 'https://b.com']);
+  });
+
+  it('rejects a wildcard CORS origin', () => {
+    expect(() => parseEnv({ ...base, CORS_ORIGINS: '*' })).toThrow(/CORS_ORIGINS/);
+  });
+
+  it('fails fast when a required variable is missing', () => {
+    expect(() => parseEnv({})).toThrow(/DATABASE_URL/);
+  });
+
+  it('rejects an out-of-range port', () => {
+    expect(() => parseEnv({ ...base, PORT: '99999' })).toThrow(/PORT/);
+  });
+});
