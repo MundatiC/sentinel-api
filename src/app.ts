@@ -1,3 +1,4 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
@@ -5,7 +6,10 @@ import { pinoHttp } from 'pino-http';
 import type { Env } from './config/env.js';
 import type { Logger } from './lib/logger.js';
 import { createErrorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { createRateLimiters } from './middleware/rateLimiters.js';
 import { requestId } from './middleware/requestId.js';
+import { createAuthRouter } from './modules/auth/auth.routes.js';
+import { createUsersRouter } from './modules/users/users.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 
 // The app is built by a function, and does NOT call listen(). That lets tests (supertest)
@@ -39,7 +43,14 @@ export function createApp(env: Env, logger: Logger) {
   // Small body limit by default; routes that legitimately need more (batch ingest) opt in.
   app.use(express.json({ limit: '100kb' }));
 
+  app.use(cookieParser());
+
+  const limiters = createRateLimiters(env);
+  app.use(limiters.global);
+
   app.use('/api/v1', healthRouter);
+  app.use('/api/v1/auth', createAuthRouter(env, limiters.login));
+  app.use('/api/v1/users', createUsersRouter(env));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler(logger));
