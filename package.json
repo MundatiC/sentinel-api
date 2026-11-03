@@ -23,7 +23,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.10.1",
     "argon2": "^0.45.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
