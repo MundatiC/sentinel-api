@@ -12,13 +12,16 @@ import { createApiKeysRouter } from './modules/apiKeys/apiKeys.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
 import { createIngestRouter } from './modules/ingest/ingest.routes.js';
 import { createScansRouter } from './modules/scans/scans.routes.js';
+import { createAlertsRouter } from './modules/alerts/alerts.routes.js';
+import { createEventPipeline } from './modules/alerts/pipeline.js';
+import { createRulesRouter } from './modules/rules/rules.routes.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createUsersRouter } from './modules/users/users.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 
 // The app is built by a function, and does NOT call listen(). That lets tests (supertest)
 // use it without opening a real port.
-export function createApp(env: Env, logger: Logger) {
+export function createApp(env: Env, logger: Logger, options: { sseHeartbeatMs?: number } = {}) {
   const app = express();
 
   app.disable('x-powered-by'); // don't advertise "Express" to scanners
@@ -47,10 +50,11 @@ export function createApp(env: Env, logger: Logger) {
   app.use(cookieParser());
 
   const limiters = createRateLimiters(env);
+  const pipeline = createEventPipeline(logger);
 
   // Machine ingestion is mounted BEFORE the global limiter and JSON parser: it has its own
   // per-IP and per-API-key limits and a larger (1 MB) body limit, applied after authentication.
-  app.use('/api/v1/ingest', createIngestRouter(limiters.ingest, limiters.ingestByIp));
+  app.use('/api/v1/ingest', createIngestRouter(limiters.ingest, limiters.ingestByIp, pipeline));
 
   app.use(limiters.global);
 
@@ -58,11 +62,13 @@ export function createApp(env: Env, logger: Logger) {
   app.use(express.json({ limit: '100kb' }));
 
   app.use('/api/v1', healthRouter);
-  app.use('/api/v1/auth', createAuthRouter(env, limiters.login));
+  app.use('/api/v1/auth', createAuthRouter(env, limiters.login, pipeline));
   app.use('/api/v1/users', createUsersRouter(env));
   app.use('/api/v1/api-keys', createApiKeysRouter(env));
   app.use('/api/v1/events', createEventsRouter(env));
   app.use('/api/v1/scans', createScansRouter(env));
+  app.use('/api/v1/alert-rules', createRulesRouter(env));
+  app.use('/api/v1/alerts', createAlertsRouter(env, { heartbeatMs: options.sseHeartbeatMs }));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler(logger));

@@ -212,7 +212,7 @@ model Alert {
   incidentId       String?     @db.Uuid
   createdAt        DateTime    @default(now()) @db.Timestamptz
 
-  rule     AlertRule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  rule     AlertRule    @relation(fields: [ruleId], references: [id], onDelete: Restrict)
   incident Incident?    @relation(fields: [incidentId], references: [id])
   events   AlertEvent[]
   // The "one OPEN alert per (rule, groupKey)" rule is a PARTIAL unique index, which Prisma

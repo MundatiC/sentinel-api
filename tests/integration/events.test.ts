@@ -9,7 +9,10 @@ beforeEach(resetDb);
 
 async function viewerToken() {
   await createUser('viewer@example.com', 'VIEWER');
-  return (await loginAs(app, 'viewer@example.com')).accessToken;
+  const { accessToken } = await loginAs(app, 'viewer@example.com');
+  // Logging in records a self-monitoring event; clear it so each test controls its own data.
+  await prisma.event.deleteMany();
+  return accessToken;
 }
 
 const at = (iso: string) => new Date(iso);

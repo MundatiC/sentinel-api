@@ -3,7 +3,7 @@
 Backend for **Sentinel**, a self-hostable security monitoring platform. It ingests security events and scan results,
 raises alerts from threshold rules, and streams them live to the dashboard.
 
-> Status: **step 3 of 5** (auth, ingestion, events and scans queries). The rules engine, live alerts and incidents are added in the next steps.
+> Status: **step 4 of 5** (auth, ingestion, rules engine, live alerts). Incidents, OpenAPI docs and the security documents come in step 5.
 > The full design is in [docs/PLAN.md](docs/PLAN.md).
 
 Part of the Sentinel suite: [sentinel-api](https://github.com/MundatiC/sentinel-api) ·
@@ -89,7 +89,33 @@ docker compose up --build
 
 Event filters: `type, severity (comma list), source, actor, ip, q, from, to, sort, page, pageSize (max 100)`.
 
+## Alert rules engine and live feed
+
+A rule says: _"at least `threshold` events of `eventType`, grouped by IP/actor/source, within `windowSeconds`"_.
+After every ingest the engine counts matching events per group and either opens an alert or adds to the active one.
+
+- One active (OPEN or ACKNOWLEDGED) alert per rule + group; after resolving, a **cooldown** avoids instant re-alerts.
+- A partial unique index in PostgreSQL guarantees no duplicate open alerts, even with concurrent requests.
+- Sentinel **monitors itself**: failed logins become `auth.login_failed` events, so the brute-force rule protects the API too.
+- Default rules (seeded): brute force (5 failed logins / 60 s / IP), injection attempts (3 / 5 min / IP), critical scan finding.
+
+| Endpoint                             | Auth           | Notes                                                |
+| ------------------------------------ | -------------- | ---------------------------------------------------- |
+| `GET/POST/PATCH/DELETE /alert-rules` | viewer / admin | A rule with alerts cannot be deleted, only disabled  |
+| `GET /alerts`, `GET /alerts/:id`     | viewer         | Filter by status, severity, rule                     |
+| `PATCH /alerts/:id`                  | analyst        | Acknowledge, resolve, assign                         |
+| `GET /alerts/stream`                 | viewer         | Server-Sent Events: `alert.created`, `alert.updated` |
+
+```bash
+curl -N localhost:4000/api/v1/alerts/stream -H "Authorization: Bearer <accessToken>"
+```
+
+The stream closes when the access token expires (clients reconnect with a fresh token), is capped at 5 per user,
+and sends a heartbeat every 25 s. The in-process bus works for a single API instance; see _Scaling_ in the plan.
+
 ## Security decisions so far
+
+- Alert evaluation failures never fail an ingest request (events are already saved); they are logged.
 
 - API keys look like `snt_<prefix>_<secret>`. They can only _write_ data, are scope-limited, and can expire or be revoked.
 - Ingest authenticates and rate-limits **before** parsing its 1 MB body; unauthenticated callers never cost a large parse.

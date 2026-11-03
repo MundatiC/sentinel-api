@@ -10,7 +10,10 @@ import type { Role } from '@prisma/client';
 export const TEST_PASSWORD = 'correct-horse-battery-staple';
 
 // Build an app with a known config, independent of the developer's real .env.
-export function buildTestApp(overrides: NodeJS.ProcessEnv = {}) {
+export function buildTestApp(
+  overrides: NodeJS.ProcessEnv = {},
+  options: { sseHeartbeatMs?: number } = {},
+) {
   const env = parseEnv({
     NODE_ENV: 'test',
     DATABASE_URL: process.env.DATABASE_URL,
@@ -21,7 +24,7 @@ export function buildTestApp(overrides: NodeJS.ProcessEnv = {}) {
     LOGIN_RATE_LIMIT: '100000',
     ...overrides,
   });
-  return { app: createApp(env, createLogger(env)), env };
+  return { app: createApp(env, createLogger(env), options), env };
 }
 
 // Wipe every table. TRUNCATE (unlike DELETE) skips the audit-log immutability trigger.
@@ -75,4 +78,9 @@ export function sampleEvent(overrides: Record<string, unknown> = {}) {
     message: 'Failed login for alice',
     ...overrides,
   };
+}
+
+export async function seedDefaultRules() {
+  const { defaultRules } = await import('../src/modules/rules/defaultRules.js');
+  await prisma.alertRule.createMany({ data: defaultRules });
 }

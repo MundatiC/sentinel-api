@@ -8,10 +8,12 @@ import { toPublicUser } from './auth.service.js';
 import * as auth from './auth.service.js';
 import { loginBody, registerBody } from './auth.schemas.js';
 import { prisma } from '../../db/prisma.js';
+import { EventTypes } from '../../lib/eventTypes.js';
+import type { EventPipeline } from '../alerts/pipeline.js';
 
 const COOKIE_NAME = 'sentinel_refresh';
 
-export function createAuthRouter(env: Env, loginLimiter: RequestHandler) {
+export function createAuthRouter(env: Env, loginLimiter: RequestHandler, pipeline: EventPipeline) {
   const router = Router();
 
   // httpOnly: JavaScript cannot read the cookie, so XSS cannot steal it.
@@ -38,7 +40,33 @@ export function createAuthRouter(env: Env, loginLimiter: RequestHandler) {
   });
 
   router.post('/login', loginLimiter, validate({ body: loginBody }), async (req, res) => {
-    const result = await auth.login(req.body, env, clientMeta(req));
+    const meta = clientMeta(req);
+    let result;
+    try {
+      result = await auth.login(req.body, env, meta);
+    } catch (err) {
+      // Sentinel monitors itself: a failed login becomes a security event, so repeated failures
+      // from one IP trip the same brute-force rule used for any other application.
+      if (err instanceof AppError && err.code === 'INVALID_CREDENTIALS') {
+        await pipeline.record({
+          type: EventTypes.LoginFailed,
+          severity: 'MEDIUM',
+          source: 'sentinel-api',
+          actor: req.body.email,
+          ip: meta.ip,
+          message: `Failed login attempt for ${req.body.email}`,
+        });
+      }
+      throw err;
+    }
+    await pipeline.record({
+      type: EventTypes.LoginSuccess,
+      severity: 'INFO',
+      source: 'sentinel-api',
+      actor: result.user.email,
+      ip: meta.ip,
+      message: `Successful login for ${result.user.email}`,
+    });
     setRefreshCookie(res, result.refreshToken);
     res.json({ accessToken: result.accessToken, user: result.user });
   });
