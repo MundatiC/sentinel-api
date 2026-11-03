@@ -10,7 +10,7 @@ const metadata = z
   .record(z.string(), z.unknown())
   .refine((value) => JSON.stringify(value).length <= MAX_METADATA_BYTES, 'metadata is too large');
 
-export const eventInput = z.strictObject({
+const eventInput = z.strictObject({
   // dotted lowercase names, e.g. "auth.login_failed"
   type: z
     .string()
