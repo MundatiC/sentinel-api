@@ -1,6 +1,7 @@
 import express, { Router, type RequestHandler } from 'express';
 import { apiKeyAuth } from '../../middleware/apiKeyAuth.js';
 import { validate } from '../../middleware/validate.js';
+import type { EventPipeline } from '../alerts/pipeline.js';
 import { ingestEventsBody, ingestScanBody } from './ingest.schemas.js';
 import { ingestEvents, ingestScan } from './ingest.service.js';
 
@@ -10,7 +11,11 @@ import { ingestEvents, ingestScan } from './ingest.service.js';
 //   2. rate limit per key
 //   3. only THEN parse the (larger, 1 MB) body
 // This router is mounted in app.ts BEFORE the global 100 kb JSON parser for that reason.
-export function createIngestRouter(ingestLimiter: RequestHandler, ingestByIp: RequestHandler) {
+export function createIngestRouter(
+  ingestLimiter: RequestHandler,
+  ingestByIp: RequestHandler,
+  pipeline: EventPipeline,
+) {
   const router = Router();
   router.use(ingestByIp);
 
@@ -22,6 +27,7 @@ export function createIngestRouter(ingestLimiter: RequestHandler, ingestByIp: Re
     validate({ body: ingestEventsBody }),
     async (req, res) => {
       const created = await ingestEvents(req.body.events, req.apiKey!.id);
+      await pipeline.process(created); // evaluate alert rules
       res.status(201).json({ accepted: created.length });
     },
   );
@@ -34,6 +40,7 @@ export function createIngestRouter(ingestLimiter: RequestHandler, ingestByIp: Re
     validate({ body: ingestScanBody }),
     async (req, res) => {
       const { scan, summary, events } = await ingestScan(req.body, req.apiKey!.id);
+      await pipeline.process(events);
       res.status(201).json({ id: scan.id, summary, criticalEvents: events.length });
     },
   );

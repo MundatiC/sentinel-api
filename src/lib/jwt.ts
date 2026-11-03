@@ -6,6 +6,7 @@ const ISSUER = 'sentinel-api';
 export interface AccessTokenPayload {
   sub: string;
   role: Role;
+  exp: number; // expiry, in seconds since 1970
 }
 
 export function signAccessToken(
@@ -26,5 +27,5 @@ export function signAccessToken(
 export function verifyAccessToken(token: string, secret: string): AccessTokenPayload {
   const payload = jwt.verify(token, secret, { algorithms: ['HS256'], issuer: ISSUER });
   if (typeof payload === 'string' || !payload.sub) throw new Error('Invalid token payload');
-  return { sub: payload.sub, role: payload['role'] as Role };
+  return { sub: payload.sub, role: payload['role'] as Role, exp: payload.exp ?? 0 };
 }

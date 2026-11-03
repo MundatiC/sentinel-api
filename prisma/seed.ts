@@ -3,39 +3,7 @@
 import { z } from 'zod';
 import { prisma } from '../src/db/prisma.js';
 import { hashPassword } from '../src/lib/password.js';
-
-const defaultRules = [
-  {
-    name: 'Brute-force login attempts',
-    description: '5 failed logins from the same IP within 1 minute',
-    eventType: 'auth.login_failed',
-    groupBy: 'IP',
-    threshold: 5,
-    windowSeconds: 60,
-    severity: 'HIGH',
-    cooldownSeconds: 300,
-  },
-  {
-    name: 'Injection attempts',
-    description: '3 injection-pattern requests from the same IP within 5 minutes',
-    eventType: 'http.injection_attempt',
-    groupBy: 'IP',
-    threshold: 3,
-    windowSeconds: 300,
-    severity: 'CRITICAL',
-    cooldownSeconds: 600,
-  },
-  {
-    name: 'Critical scan finding',
-    description: 'A scan reported a critical finding',
-    eventType: 'scan.finding_critical',
-    groupBy: 'SOURCE',
-    threshold: 1,
-    windowSeconds: 60,
-    severity: 'CRITICAL',
-    cooldownSeconds: 0,
-  },
-] as const;
+import { defaultRules } from '../src/modules/rules/defaultRules.js';
 
 async function main() {
   for (const rule of defaultRules) {
