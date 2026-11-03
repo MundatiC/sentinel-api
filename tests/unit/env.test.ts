@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseEnv } from '../../src/config/env.js';
 
-const base = { DATABASE_URL: 'postgresql://u:p@localhost:5432/db' };
+const base = {
+  DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+  JWT_ACCESS_SECRET: 'x'.repeat(32),
+};
 
 describe('parseEnv', () => {
   it('applies defaults', () => {
@@ -22,6 +25,21 @@ describe('parseEnv', () => {
 
   it('fails fast when a required variable is missing', () => {
     expect(() => parseEnv({})).toThrow(/DATABASE_URL/);
+  });
+
+  it('rejects a short JWT secret', () => {
+    expect(() => parseEnv({ ...base, JWT_ACCESS_SECRET: 'too-short' })).toThrow(
+      /JWT_ACCESS_SECRET/,
+    );
+  });
+
+  it('keeps registration disabled by default', () => {
+    expect(parseEnv(base).ALLOW_REGISTRATION).toBe(false);
+  });
+
+  it('uses secure cookies in production only by default', () => {
+    expect(parseEnv({ ...base, NODE_ENV: 'production' }).cookieSecure).toBe(true);
+    expect(parseEnv({ ...base, NODE_ENV: 'development' }).cookieSecure).toBe(false);
   });
 
   it('rejects an out-of-range port', () => {

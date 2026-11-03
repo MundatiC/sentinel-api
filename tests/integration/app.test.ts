@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { buildTestApp } from '../helpers.js';
 
-const app = buildTestApp();
+const { app } = buildTestApp();
 
 describe('GET /api/v1/health', () => {
   it('returns ok', async () => {
