@@ -3,6 +3,7 @@ import { createApp } from '../src/app.js';
 import { parseEnv } from '../src/config/env.js';
 import { prisma } from '../src/db/prisma.js';
 import { createLogger } from '../src/lib/logger.js';
+import { generateApiKey } from '../src/lib/apiKey.js';
 import { hashPassword } from '../src/lib/password.js';
 import type { Role } from '@prisma/client';
 
@@ -45,4 +46,33 @@ export async function loginAs(
   const res = await request(app).post('/api/v1/auth/login').send({ email, password });
   const cookie = (res.headers['set-cookie'] as unknown as string[] | undefined)?.[0]?.split(';')[0];
   return { res, accessToken: res.body.accessToken as string, cookie: cookie as string };
+}
+
+// Creates an API key straight in the database (bypassing the admin endpoint) and returns the raw key.
+export async function createApiKey(
+  scopes: string[] = ['events:write', 'scans:write'],
+  overrides: { expiresAt?: Date; revokedAt?: Date } = {},
+) {
+  const admin = await prisma.user.upsert({
+    where: { email: 'keyowner@example.com' },
+    update: {},
+    create: { email: 'keyowner@example.com', role: 'ADMIN', passwordHash: 'x' },
+  });
+  const { raw, prefix, hash } = generateApiKey();
+  const key = await prisma.apiKey.create({
+    data: { name: 'test key', prefix, keyHash: hash, scopes, createdById: admin.id, ...overrides },
+  });
+  return { raw, key };
+}
+
+export function sampleEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'auth.login_failed',
+    severity: 'MEDIUM',
+    source: 'web-1',
+    actor: 'alice',
+    ip: '203.0.113.7',
+    message: 'Failed login for alice',
+    ...overrides,
+  };
 }

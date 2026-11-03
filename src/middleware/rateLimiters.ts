@@ -26,9 +26,26 @@ function limiter(
   });
 }
 
-export function createRateLimiters(env: Env): { global: RequestHandler; login: RequestHandler } {
+export function createRateLimiters(env: Env): {
+  global: RequestHandler;
+  login: RequestHandler;
+  ingest: RequestHandler;
+  ingestByIp: RequestHandler;
+} {
   return {
     global: limiter(env.GLOBAL_RATE_LIMIT, env.RATE_LIMIT_WINDOW_MINUTES),
+    // Runs BEFORE API-key auth: caps how fast one IP can guess keys or flood us with junk.
+    ingestByIp: limiter(env.INGEST_RATE_LIMIT * 5, 1),
+    // Runs AFTER API-key auth, so the limit is per key (a noisy scanner cannot starve another one).
+    ingest: rateLimit({
+      limit: env.INGEST_RATE_LIMIT,
+      windowMs: 60_000,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+      keyGenerator: (req) => req.apiKey?.id ?? ipKeyGenerator(req.ip ?? 'unknown'),
+      handler: (_req, _res, next) =>
+        next(new AppError(429, 'RATE_LIMITED', 'Too many requests, slow down')),
+    }),
     // Login is limited per IP AND per email: stops one IP guessing many passwords for one
     // account, and stops guessing many accounts from one IP.
     login: limiter(env.LOGIN_RATE_LIMIT, env.RATE_LIMIT_WINDOW_MINUTES, (ip, body) => {
