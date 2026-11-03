@@ -43,7 +43,13 @@ export async function linkAlert(tx: Tx, incidentId: string, alertId: string, aut
   if (alert.incidentId === incidentId) return false; // already linked: nothing to do
   if (alert.incidentId)
     throw new AppError(409, 'ALERT_ALREADY_LINKED', 'This alert belongs to another incident');
-  await tx.alert.update({ where: { id: alertId }, data: { incidentId } });
+  // Claim the alert only if nobody else has: two analysts linking it at the same moment must not both win.
+  const claimed = await tx.alert.updateMany({
+    where: { id: alertId, incidentId: null },
+    data: { incidentId },
+  });
+  if (claimed.count === 0)
+    throw new AppError(409, 'ALERT_ALREADY_LINKED', 'This alert belongs to another incident');
   await tx.incidentTimelineEntry.create({
     data: { incidentId, kind: 'ALERT_LINKED', body: `Alert linked: ${alert.title}`, authorId },
   });

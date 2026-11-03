@@ -98,6 +98,7 @@ model RefreshToken {
 
   @@index([userId])
   @@index([familyId])
+  @@index([expiresAt])
 }
 
 model ApiKey {

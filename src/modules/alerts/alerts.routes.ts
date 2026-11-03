@@ -113,7 +113,21 @@ export function createAlertsRouter(env: Env, options: { heartbeatMs?: number } =
         actions.push('alert.assigned');
       }
 
-      const updated = await prisma.alert.update({ where: { id }, data });
+      // The status check above read the alert earlier. Update only if it is STILL in that status, so two
+      // analysts acting at the same moment cannot undo each other (for example "resolved" turned back into
+      // "acknowledged").
+      const changed = await prisma.alert.updateMany({
+        where: { id, ...(body.status ? { status: alert.status } : {}) },
+        data,
+      });
+      if (changed.count === 0) {
+        throw new AppError(
+          409,
+          'CONFLICT',
+          'Someone else just changed this alert. Reload it and try again.',
+        );
+      }
+      const updated = await prisma.alert.findUniqueOrThrow({ where: { id } });
       for (const action of actions) {
         await recordAudit({
           actorType: 'USER',

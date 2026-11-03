@@ -1,4 +1,4 @@
-import type { User } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { Env } from '../../config/env.js';
 import { prisma } from '../../db/prisma.js';
@@ -49,14 +49,36 @@ async function issueRefreshToken(
   return { raw, record };
 }
 
+// Every login and refresh adds a row, so without cleanup the table only grows. Dead rows (expired, or revoked
+// long ago) are removed whenever someone logs in. Recently revoked rows stay: replaying one must still be
+// recognised as token theft.
+const REVOKED_KEEP_MS = 30 * 86_400_000;
+async function pruneRefreshTokens() {
+  const now = Date.now();
+  await prisma.refreshToken.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: new Date(now) } },
+        { revokedAt: { lt: new Date(now - REVOKED_KEEP_MS) } },
+      ],
+    },
+  });
+}
+
 export async function register(body: RegisterBody, meta: Meta) {
-  const existing = await prisma.user.findUnique({ where: { email: body.email } });
-  if (existing) throw new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists');
+  const taken = () => new AppError(409, 'EMAIL_TAKEN', 'An account with this email already exists');
+  if (await prisma.user.findUnique({ where: { email: body.email } })) throw taken();
 
   // Self-registered users are ALWAYS viewers. Admins promote people later.
-  const user = await prisma.user.create({
-    data: { email: body.email, passwordHash: await hashPassword(body.password), role: 'VIEWER' },
-  });
+  const passwordHash = await hashPassword(body.password);
+  let user: User;
+  try {
+    user = await prisma.user.create({ data: { email: body.email, passwordHash, role: 'VIEWER' } });
+  } catch (err) {
+    // Two simultaneous sign-ups can both pass the check above; the unique index decides who wins.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw taken();
+    throw err;
+  }
   await recordAudit({ actorType: 'USER', actorId: user.id, action: 'auth.register', ...meta });
   return toPublicUser(user);
 }
@@ -90,6 +112,7 @@ export async function login(
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid credentials');
   }
 
+  await pruneRefreshTokens();
   const { raw } = await issueRefreshToken(user.id, randomUUID(), env, meta);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await recordAudit({ actorType: 'USER', actorId: user.id, action: 'auth.login', ...meta });
