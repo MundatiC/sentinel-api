@@ -1,0 +1,85 @@
+# Runs the WHOLE Sentinel platform locally.
+#
+# Expected layout (clone the three repos side by side):
+#   sentinel/
+#     sentinel-api/        <- you are here, run the command from this folder
+#     sentinel-dashboard/
+#     sentinel-scanner/
+#
+# Usage:
+#   cp .env.example .env            # then set JWT_ACCESS_SECRET and SEED_ADMIN_* (see the file)
+#   docker compose -f docker-compose.full.yml up --build
+#   -> dashboard http://localhost:3000   api http://localhost:4000   docs http://localhost:4000/docs
+#
+# Run a scan on demand (the scanner is NOT a long-running service):
+#   docker compose -f docker-compose.full.yml --profile tools run --rm scanner \
+#     web https://your-own-site.example --i-own-this --send
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: sentinel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sentinel']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No "ports": only the other containers can reach the database.
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sentinel:${POSTGRES_PASSWORD:-change-me}@db:5432/sentinel
+      CORS_ORIGINS: http://localhost:3000
+      # Local HTTP only. Behind HTTPS (real deployments) remove this so cookies are Secure.
+      COOKIE_SECURE: 'false'
+      ENABLE_DOCS: 'true'
+    ports:
+      - '4000:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # One-shot job: creates the first admin and default alert rules, then exits.
+  # Waits for the API to be healthy because the API applies the database migrations on start-up.
+  seed:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://sentinel:${POSTGRES_PASSWORD:-change-me}@db:5432/sentinel
+    command: ['node', 'dist/scripts/seed.js']
+    restart: 'no'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ../sentinel-dashboard
+      args:
+        # The browser calls the API directly, so this is the URL as seen from the browser.
+        NEXT_PUBLIC_API_URL: http://localhost:4000
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  scanner:
+    build: ../sentinel-scanner
+    profiles: ['tools'] # only started with `--profile tools run ...`
+    environment:
+      SENTINEL_API_URL: http://api:4000
+      SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

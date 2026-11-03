@@ -10,7 +10,7 @@ import { requireRole } from '../../middleware/requireRole.js';
 import { validate } from '../../middleware/validate.js';
 import { recordAudit } from '../audit/audit.service.js';
 
-const createBody = z.strictObject({
+export const createApiKeyBody = z.strictObject({
   name: z.string().trim().min(1).max(100),
   scopes: z
     .array(z.enum(API_KEY_SCOPES))
@@ -48,8 +48,8 @@ export function createApiKeysRouter(env: Env) {
     res.json({ data: keys });
   });
 
-  router.post('/', validate({ body: createBody }), async (req, res) => {
-    const body = req.body as z.infer<typeof createBody>;
+  router.post('/', validate({ body: createApiKeyBody }), async (req, res) => {
+    const body = req.body as z.infer<typeof createApiKeyBody>;
     const { raw, prefix, hash } = generateApiKey();
     const key = await prisma.apiKey.create({
       data: {
