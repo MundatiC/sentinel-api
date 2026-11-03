@@ -3,7 +3,7 @@
 Backend for **Sentinel**, a self-hostable security monitoring platform. It ingests security events and scan results,
 raises alerts from threshold rules, and streams them live to the dashboard.
 
-> Status: **step 2 of 5** (auth, RBAC, audit log). Ingestion, the rules engine and incidents are added in the next steps.
+> Status: **step 3 of 5** (auth, ingestion, events and scans queries). The rules engine, live alerts and incidents are added in the next steps.
 > The full design is in [docs/PLAN.md](docs/PLAN.md).
 
 Part of the Sentinel suite: [sentinel-api](https://github.com/MundatiC/sentinel-api) ·
@@ -77,7 +77,24 @@ docker compose up --build
 | `GET/PATCH /users`      | Admin only. Cannot change your own role; deactivation ends sessions         |
 | `GET /health`, `/ready` | Liveness and readiness (database) probes                                    |
 
+## Ingestion and queries
+
+| Endpoint                                      | Auth                   | Notes                                                        |
+| --------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
+| `GET/POST/DELETE /api-keys`                   | admin                  | The raw key is shown **once**; only its SHA-256 hash is kept |
+| `POST /ingest/events`                         | API key `events:write` | Batch of 1-500 events, all-or-nothing                        |
+| `POST /ingest/scans`                          | API key `scans:write`  | Scan + findings; critical findings also become events        |
+| `GET /events`, `/events/:id`, `/events/stats` | viewer                 | Filters, server-side pagination, chart buckets               |
+| `GET /scans`, `/scans/:id`                    | viewer                 | Findings grouped by category                                 |
+
+Event filters: `type, severity (comma list), source, actor, ip, q, from, to, sort, page, pageSize (max 100)`.
+
 ## Security decisions so far
+
+- API keys look like `snt_<prefix>_<secret>`. They can only _write_ data, are scope-limited, and can expire or be revoked.
+- Ingest authenticates and rate-limits **before** parsing its 1 MB body; unauthenticated callers never cost a large parse.
+- Ingest input is strictly validated (unknown fields rejected, size caps, no future timestamps, http/https URLs only).
+- Free-text search escapes SQL `LIKE` wildcards; all filters are parameterized by Prisma.
 
 - Passwords are hashed with **argon2id**; unknown-email logins still run a dummy hash so timing does not reveal accounts.
 - Refresh tokens are random 256-bit values stored **only as SHA-256 hashes**, in an `httpOnly; SameSite=Strict` cookie scoped to `/api/v1/auth`.
