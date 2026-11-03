@@ -51,7 +51,9 @@ const findingInput = z.strictObject({
 
 export const ingestScanBody = z
   .strictObject({
-    target: z.url({ protocol: /^https?$/ }).max(2048),
+    // Web scans target an http(s) URL. Dependency scans have no website, so the scanner uses
+    // local://<project-name> (any other scheme, such as file: or javascript:, is refused).
+    target: z.url({ protocol: /^(https?|local)$/ }).max(2048),
     scannerVersion: z.string().trim().min(1).max(50),
     startedAt: isoDate,
     finishedAt: isoDate,

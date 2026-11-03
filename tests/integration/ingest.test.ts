@@ -188,6 +188,27 @@ describe('POST /ingest/scans', () => {
     });
   });
 
+  it('accepts a local:// target for dependency scans and uses the project name as the event source', async () => {
+    const { raw } = await createApiKey();
+    const res = await postScan(
+      raw,
+      scan(
+        [
+          finding({
+            checkId: 'deps.GHSA-aaaa-bbbb-cccc',
+            category: 'DEPENDENCIES',
+            severity: 'CRITICAL',
+          }),
+        ],
+        {
+          target: 'local://my-project',
+        },
+      ),
+    );
+    expect(res.status).toBe(201);
+    expect((await prisma.event.findFirstOrThrow()).source).toBe('my-project');
+  });
+
   it.each([
     ['non-http target', scan([], { target: 'file:///etc/passwd' })],
     ['javascript: target', scan([], { target: 'javascript:alert(1)' })],
