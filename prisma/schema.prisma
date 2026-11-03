@@ -1,0 +1,281 @@
+// Sentinel data model. See docs/PLAN.md for the reasoning behind each table.
+// Conventions: UUID primary keys (not guessable), timestamptz timestamps.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum Severity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  CONTAINED
+  RESOLVED
+}
+
+enum TimelineKind {
+  NOTE
+  STATUS_CHANGE
+  ALERT_LINKED
+}
+
+enum GroupBy {
+  IP
+  ACTOR
+  SOURCE
+}
+
+enum ScanCategory {
+  HEADERS
+  COOKIES
+  TLS
+  EXPOSED_FILES
+  DEPENDENCIES
+}
+
+enum ActorType {
+  USER
+  API_KEY
+  SYSTEM
+}
+
+// ---------- Auth and access ----------
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique // always stored lowercase
+  passwordHash String
+  role         Role      @default(VIEWER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime? @db.Timestamptz
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @db.Timestamptz
+
+  refreshTokens RefreshToken[]
+  apiKeys       ApiKey[]
+}
+
+// Only the SHA-256 hash of the refresh token is stored, never the token itself.
+// All tokens descended from one login share a familyId, so reuse of a revoked token
+// lets us revoke the whole family (a stolen token is detected).
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  tokenHash    String    @unique
+  familyId     String    @db.Uuid
+  expiresAt    DateTime  @db.Timestamptz
+  revokedAt    DateTime? @db.Timestamptz
+  replacedById String?   @db.Uuid
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model ApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  prefix      String    @unique
+  keyHash     String
+  scopes      String[]
+  createdById String    @db.Uuid
+  lastUsedAt  DateTime? @db.Timestamptz
+  expiresAt   DateTime? @db.Timestamptz
+  revokedAt   DateTime? @db.Timestamptz
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+
+  createdBy User    @relation(fields: [createdById], references: [id])
+  events    Event[]
+  scans     Scan[]
+}
+
+// ---------- Telemetry ----------
+
+model Event {
+  id         String   @id @default(uuid()) @db.Uuid
+  apiKeyId   String?  @db.Uuid
+  type       String
+  severity   Severity @default(INFO)
+  source     String
+  actor      String?
+  ip         String?
+  message    String
+  metadata   Json     @default("{}")
+  occurredAt DateTime @db.Timestamptz
+  receivedAt DateTime @default(now()) @db.Timestamptz
+
+  apiKey      ApiKey?      @relation(fields: [apiKeyId], references: [id])
+  alertEvents AlertEvent[]
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([type, ip, occurredAt])
+  @@index([type, actor, occurredAt])
+  @@index([type, source, occurredAt])
+  @@index([severity])
+}
+
+model Scan {
+  id             String   @id @default(uuid()) @db.Uuid
+  apiKeyId       String?  @db.Uuid
+  target         String
+  scannerVersion String
+  startedAt      DateTime @db.Timestamptz
+  finishedAt     DateTime @db.Timestamptz
+  summary        Json     @default("{}")
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  apiKey   ApiKey?       @relation(fields: [apiKeyId], references: [id])
+  findings ScanFinding[]
+
+  @@index([createdAt(sort: Desc)])
+}
+
+model ScanFinding {
+  id          String       @id @default(uuid()) @db.Uuid
+  scanId      String       @db.Uuid
+  checkId     String
+  category    ScanCategory
+  severity    Severity
+  title       String
+  description String
+  evidence    Json         @default("{}")
+  remediation String
+  references  String[]
+
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+}
+
+// ---------- Detection and response ----------
+
+model AlertRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @unique
+  description     String   @default("")
+  enabled         Boolean  @default(true)
+  eventType       String
+  groupBy         GroupBy  @default(IP)
+  threshold       Int
+  windowSeconds   Int
+  severity        Severity
+  cooldownSeconds Int      @default(300)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  alerts Alert[]
+}
+
+model Alert {
+  id               String      @id @default(uuid()) @db.Uuid
+  ruleId           String      @db.Uuid
+  status           AlertStatus @default(OPEN)
+  severity         Severity
+  title            String
+  groupKey         String
+  eventCount       Int         @default(0)
+  firstEventAt     DateTime    @db.Timestamptz
+  lastEventAt      DateTime    @db.Timestamptz
+  assigneeId       String?     @db.Uuid
+  acknowledgedAt   DateTime?   @db.Timestamptz
+  acknowledgedById String?     @db.Uuid
+  resolvedAt       DateTime?   @db.Timestamptz
+  resolvedById     String?     @db.Uuid
+  incidentId       String?     @db.Uuid
+  createdAt        DateTime    @default(now()) @db.Timestamptz
+
+  rule     AlertRule    @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  incident Incident?    @relation(fields: [incidentId], references: [id])
+  events   AlertEvent[]
+  // The "one OPEN alert per (rule, groupKey)" rule is a PARTIAL unique index, which Prisma
+  // cannot express. It is added by hand in the migration SQL (see prisma/migrations).
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([ruleId, groupKey, createdAt])
+}
+
+model AlertEvent {
+  alertId String @db.Uuid
+  eventId String @db.Uuid
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([alertId, eventId])
+}
+
+model Incident {
+  id          String         @id @default(uuid()) @db.Uuid
+  title       String
+  status      IncidentStatus @default(OPEN)
+  severity    Severity
+  summary     String         @default("")
+  createdById String         @db.Uuid
+  createdAt   DateTime       @default(now()) @db.Timestamptz
+  updatedAt   DateTime       @updatedAt @db.Timestamptz
+  resolvedAt  DateTime?      @db.Timestamptz
+
+  alerts   Alert[]
+  timeline IncidentTimelineEntry[]
+}
+
+model IncidentTimelineEntry {
+  id         String       @id @default(uuid()) @db.Uuid
+  incidentId String       @db.Uuid
+  occurredAt DateTime     @default(now()) @db.Timestamptz
+  kind       TimelineKind
+  body       String
+  authorId   String?      @db.Uuid
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, occurredAt])
+}
+
+// ---------- Accountability ----------
+
+// Append-only: the API has no endpoint that updates or deletes rows here.
+model AuditLog {
+  id         BigInt    @id @default(autoincrement())
+  actorType  ActorType
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  ip         String?
+  userAgent  String?
+  metadata   Json      @default("{}")
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+
+  @@index([createdAt(sort: Desc)])
+  @@index([actorId])
+  @@index([action])
+}

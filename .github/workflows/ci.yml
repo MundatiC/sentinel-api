@@ -11,6 +11,23 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Integration tests run against a real PostgreSQL, started as a service container.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: sentinel
+          POSTGRES_DB: sentinel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sentinel"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://sentinel:sentinel@localhost:5432/sentinel_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +38,7 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
+      - run: npx prisma migrate deploy
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
 

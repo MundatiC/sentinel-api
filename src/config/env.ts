@@ -21,9 +21,29 @@ const envSchema = z.object({
     }),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   DATABASE_URL: z.string().min(1),
+
+  // Signing key for access tokens. 32+ characters is enforced so nobody ships "secret".
+  // Generate one with: openssl rand -base64 48
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+  ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
+  // Self-registration is OFF unless explicitly enabled. New users are always VIEWERs.
+  ALLOW_REGISTRATION: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+
+  // Cookies get the Secure flag (HTTPS only) in production unless overridden.
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
+
+  // Rate limits (requests per window). Configurable so tests and load tests can change them.
+  GLOBAL_RATE_LIMIT: z.coerce.number().int().min(1).default(300),
+  LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).default(15),
 });
 
-export type Env = z.infer<typeof envSchema>;
+export type Env = z.infer<typeof envSchema> & { cookieSecure: boolean };
 
 // Takes the source as an argument (instead of reading process.env directly) so tests
 // can call it with any object.
@@ -35,5 +55,9 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${problems}`);
   }
-  return result.data;
+  const data = result.data;
+  const cookieSecure = data.COOKIE_SECURE
+    ? data.COOKIE_SECURE === 'true'
+    : data.NODE_ENV === 'production';
+  return { ...data, cookieSecure };
 }
