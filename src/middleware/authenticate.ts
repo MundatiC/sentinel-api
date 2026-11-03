@@ -26,13 +26,14 @@ declare global {
 // We look the user up on every request (instead of trusting the role inside the token) so that
 // deactivating a user or changing their role takes effect IMMEDIATELY, not after the token expires.
 export function authenticate(env: Pick<Env, 'JWT_ACCESS_SECRET'>): RequestHandler {
-  return async (req, _res, next) => {
+  return async (req, res, next) => {
     const header = req.get('authorization');
     if (!header?.startsWith('Bearer ')) throw AppError.unauthorized();
 
     let userId: string;
+    let exp: number;
     try {
-      userId = verifyAccessToken(header.slice(7), env.JWT_ACCESS_SECRET).sub;
+      ({ sub: userId, exp } = verifyAccessToken(header.slice(7), env.JWT_ACCESS_SECRET));
     } catch {
       throw AppError.unauthorized('Invalid or expired token');
     }
@@ -41,6 +42,8 @@ export function authenticate(env: Pick<Env, 'JWT_ACCESS_SECRET'>): RequestHandle
     if (!user || !user.isActive) throw AppError.unauthorized('Invalid or expired token');
 
     req.user = { id: user.id, email: user.email, role: user.role };
+    // Long-lived responses (the SSE stream) use this to close themselves when the token expires.
+    res.locals.tokenExpiresAt = exp * 1000;
     next();
   };
 }
