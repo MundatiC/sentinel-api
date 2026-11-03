@@ -1,9 +1,9 @@
 // Creates the first admin (from env vars) and the default alert rules.
 // Safe to run repeatedly: everything is an upsert.
 import { z } from 'zod';
-import { prisma } from '../src/db/prisma.js';
-import { hashPassword } from '../src/lib/password.js';
-import { defaultRules } from '../src/modules/rules/defaultRules.js';
+import { prisma } from '../db/prisma.js';
+import { hashPassword } from '../lib/password.js';
+import { defaultRules } from '../modules/rules/defaultRules.js';
 
 async function main() {
   for (const rule of defaultRules) {

@@ -24,8 +24,8 @@ const ruleFields = z.strictObject({
   severity: z.enum(Severity),
   cooldownSeconds: z.number().int().min(0).max(86_400).default(300),
 });
-const createBody = ruleFields;
-const updateBody = ruleFields
+export const createRuleBody = ruleFields;
+export const updateRuleBody = ruleFields
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'Provide at least one field');
 const idParams = z.object({ id: z.uuid() });
@@ -43,7 +43,7 @@ export function createRulesRouter(env: Env) {
     res.json({ data: await prisma.alertRule.findMany({ orderBy: { name: 'asc' } }) });
   });
 
-  router.post('/', requireRole('ADMIN'), validate({ body: createBody }), async (req, res) => {
+  router.post('/', requireRole('ADMIN'), validate({ body: createRuleBody }), async (req, res) => {
     try {
       const rule = await prisma.alertRule.create({ data: req.body });
       await recordAudit({
@@ -66,7 +66,7 @@ export function createRulesRouter(env: Env) {
   router.patch(
     '/:id',
     requireRole('ADMIN'),
-    validate({ params: idParams, body: updateBody }),
+    validate({ params: idParams, body: updateRuleBody }),
     async (req, res) => {
       const { id } = res.locals.params as z.infer<typeof idParams>;
       try {

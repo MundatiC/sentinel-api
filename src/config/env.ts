@@ -34,6 +34,9 @@ const envSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
 
+  // Swagger UI + openapi.json. On by default except in production, where it must be switched on explicitly.
+  ENABLE_DOCS: z.enum(['true', 'false']).optional(),
+
   // Cookies get the Secure flag (HTTPS only) in production unless overridden.
   COOKIE_SECURE: z.enum(['true', 'false']).optional(),
 
@@ -44,7 +47,7 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).default(15),
 });
 
-export type Env = z.infer<typeof envSchema> & { cookieSecure: boolean };
+export type Env = z.infer<typeof envSchema> & { cookieSecure: boolean; docsEnabled: boolean };
 
 // Takes the source as an argument (instead of reading process.env directly) so tests
 // can call it with any object.
@@ -60,5 +63,8 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
   const cookieSecure = data.COOKIE_SECURE
     ? data.COOKIE_SECURE === 'true'
     : data.NODE_ENV === 'production';
-  return { ...data, cookieSecure };
+  const docsEnabled = data.ENABLE_DOCS
+    ? data.ENABLE_DOCS === 'true'
+    : data.NODE_ENV !== 'production';
+  return { ...data, cookieSecure, docsEnabled };
 }
