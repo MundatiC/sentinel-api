@@ -18,7 +18,7 @@ import { recordAudit } from '../audit/audit.service.js';
 import { toPublicUser } from '../auth/auth.service.js';
 
 const idParams = z.object({ id: z.uuid() });
-const updateBody = z
+export const updateUserBody = z
   .strictObject({ role: z.enum(Role).optional(), isActive: z.boolean().optional() })
   .refine((value) => value.role !== undefined || value.isActive !== undefined, {
     message: 'Provide role and/or isActive',
@@ -45,9 +45,9 @@ export function createUsersRouter(env: Env) {
     );
   });
 
-  router.patch('/:id', validate({ params: idParams, body: updateBody }), async (req, res) => {
+  router.patch('/:id', validate({ params: idParams, body: updateUserBody }), async (req, res) => {
     const { id } = res.locals.params as z.infer<typeof idParams>;
-    const { role, isActive } = req.body as z.infer<typeof updateBody>;
+    const { role, isActive } = req.body as z.infer<typeof updateUserBody>;
 
     // An admin cannot lock themselves out or demote themselves.
     if (id === req.user!.id) {

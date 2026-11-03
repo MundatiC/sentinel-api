@@ -1,140 +1,159 @@
 # sentinel-api
 
 Backend for **Sentinel**, a self-hostable security monitoring platform. It ingests security events and scan results,
-raises alerts from threshold rules, and streams them live to the dashboard.
+raises alerts from threshold rules, tracks incidents, and streams alerts live to the dashboard.
 
-> Status: **step 4 of 5** (auth, ingestion, rules engine, live alerts). Incidents, OpenAPI docs and the security documents come in step 5.
-> The full design is in [docs/PLAN.md](docs/PLAN.md).
+Part of the Sentinel suite:
+[sentinel-api](https://github.com/MundatiC/sentinel-api) ·
+[sentinel-dashboard](https://github.com/MundatiC/sentinel-dashboard) ·
+[sentinel-scanner](https://github.com/MundatiC/sentinel-scanner)
 
-Part of the Sentinel suite: [sentinel-api](https://github.com/MundatiC/sentinel-api) ·
-[sentinel-dashboard](https://github.com/MundatiC/sentinel-dashboard) · [sentinel-scanner](https://github.com/MundatiC/sentinel-scanner)
+**Stack:** Node.js 22, TypeScript, Express 5, PostgreSQL, Prisma, zod, argon2, JWT, Vitest + supertest.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  S[sentinel-scanner<br/>Python CLI] -- "X-API-Key" --> A[sentinel-api<br/>Express + TypeScript]
-  D[sentinel-dashboard<br/>Next.js] -- "JWT + refresh cookie, REST + SSE" --> A
-  A --> P[(PostgreSQL)]
+  S[sentinel-scanner<br/>Python CLI] -- "X-API-Key<br/>POST /ingest/scans, /ingest/events" --> A
+  D[sentinel-dashboard<br/>Next.js] -- "JWT + refresh cookie<br/>REST + SSE" --> A
+  subgraph A [sentinel-api]
+    direction TB
+    R[Routes<br/>auth, validate, rate limit] --> SV[Services]
+    SV --> E[Rules engine]
+    E --> BUS((alertBus))
+    BUS --> SSE[GET /alerts/stream]
+  end
+  SV --> P[(PostgreSQL)]
+  E --> P
+```
+
+How an alert is born:
+
+```mermaid
+sequenceDiagram
+  participant Src as Scanner / log shipper
+  participant API as Ingest route
+  participant DB as PostgreSQL
+  participant Eng as Rules engine
+  participant UI as Dashboard (SSE)
+  Src->>API: POST /ingest/events (X-API-Key)
+  API->>API: authenticate key, rate limit, validate (zod)
+  API->>DB: store events
+  API->>Eng: evaluate touched (rule, group) pairs
+  Eng->>DB: count events in window, create/update alert
+  Eng-->>UI: alert.created / alert.updated
 ```
 
 ## Quick start
 
-Requires Node.js 22+.
+Requires Node.js 22+ and Docker (for PostgreSQL).
 
 ```bash
-cp .env.example .env          # then edit JWT_ACCESS_SECRET and the seed admin password
+cp .env.example .env            # set JWT_ACCESS_SECRET (openssl rand -base64 48) and SEED_ADMIN_*
 npm install
-docker compose up -d db       # PostgreSQL only
-npm run db:deploy             # apply migrations
-npm run db:seed               # first admin + default alert rules
-npm run dev                   # http://localhost:4000/api/v1/health
+docker compose up -d db         # PostgreSQL only
+npm run db:deploy               # apply migrations
+npm run db:seed                 # first admin + default alert rules
+npm run dev                     # http://localhost:4000/api/v1/health  ·  docs: http://localhost:4000/docs
 ```
 
-Try it:
+Try the whole flow:
 
 ```bash
+# 1. log in
 curl -s -c jar -X POST localhost:4000/api/v1/auth/login -H 'content-type: application/json' \
-  -d '{"email":"admin@example.com","password":"<SEED_ADMIN_PASSWORD>"}'
-# use the returned accessToken:
-curl -s localhost:4000/api/v1/auth/me -H "Authorization: Bearer <accessToken>"
-```
+  -d '{"email":"admin@example.com","password":"<SEED_ADMIN_PASSWORD>"}'        # -> accessToken
 
-Tests need a PostgreSQL database (default `postgresql://sentinel:sentinel@localhost:5432/sentinel_test`,
-override with `TEST_DATABASE_URL`). **They wipe that database**, never point it at real data.
-Create it once and migrate it:
+# 2. create an API key (the raw key is shown once)
+curl -s -X POST localhost:4000/api/v1/api-keys -H "Authorization: Bearer <accessToken>" \
+  -H 'content-type: application/json' -d '{"name":"demo","scopes":["events:write"]}'   # -> key
 
-```bash
-DATABASE_URL=postgresql://sentinel:sentinel@localhost:5432/sentinel_test npm run db:deploy
-```
+# 3. send 5 failed-login events from one IP: the brute-force rule raises an alert
+for i in 1 2 3 4 5; do curl -s -X POST localhost:4000/api/v1/ingest/events -H "X-API-Key: <key>" \
+  -H 'content-type: application/json' \
+  -d '{"events":[{"type":"auth.login_failed","source":"web-1","ip":"203.0.113.7","message":"Failed login"}]}'; done
 
-With Docker (API + PostgreSQL):
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-## Scripts
-
-| Command             | What it does                |
-| ------------------- | --------------------------- |
-| `npm run dev`       | Start with auto-reload      |
-| `npm test`          | Run Vitest + supertest      |
-| `npm run lint`      | ESLint                      |
-| `npm run typecheck` | TypeScript without emitting |
-| `npm run build`     | Compile to `dist/`          |
-
-## Auth at a glance
-
-| Endpoint                | Notes                                                                       |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `POST /auth/register`   | Disabled unless `ALLOW_REGISTRATION=true`; always creates a VIEWER          |
-| `POST /auth/login`      | Rate limited per IP + email; returns a 15 min access token + refresh cookie |
-| `POST /auth/refresh`    | Rotates the refresh token; replaying a used one revokes the whole session   |
-| `POST /auth/logout`     | Revokes the session and clears the cookie                                   |
-| `GET /auth/me`          | Current user                                                                |
-| `GET/PATCH /users`      | Admin only. Cannot change your own role; deactivation ends sessions         |
-| `GET /health`, `/ready` | Liveness and readiness (database) probes                                    |
-
-## Ingestion and queries
-
-| Endpoint                                      | Auth                   | Notes                                                        |
-| --------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
-| `GET/POST/DELETE /api-keys`                   | admin                  | The raw key is shown **once**; only its SHA-256 hash is kept |
-| `POST /ingest/events`                         | API key `events:write` | Batch of 1-500 events, all-or-nothing                        |
-| `POST /ingest/scans`                          | API key `scans:write`  | Scan + findings; critical findings also become events        |
-| `GET /events`, `/events/:id`, `/events/stats` | viewer                 | Filters, server-side pagination, chart buckets               |
-| `GET /scans`, `/scans/:id`                    | viewer                 | Findings grouped by category                                 |
-
-Event filters: `type, severity (comma list), source, actor, ip, q, from, to, sort, page, pageSize (max 100)`.
-
-## Alert rules engine and live feed
-
-A rule says: _"at least `threshold` events of `eventType`, grouped by IP/actor/source, within `windowSeconds`"_.
-After every ingest the engine counts matching events per group and either opens an alert or adds to the active one.
-
-- One active (OPEN or ACKNOWLEDGED) alert per rule + group; after resolving, a **cooldown** avoids instant re-alerts.
-- A partial unique index in PostgreSQL guarantees no duplicate open alerts, even with concurrent requests.
-- Sentinel **monitors itself**: failed logins become `auth.login_failed` events, so the brute-force rule protects the API too.
-- Default rules (seeded): brute force (5 failed logins / 60 s / IP), injection attempts (3 / 5 min / IP), critical scan finding.
-
-| Endpoint                             | Auth           | Notes                                                |
-| ------------------------------------ | -------------- | ---------------------------------------------------- |
-| `GET/POST/PATCH/DELETE /alert-rules` | viewer / admin | A rule with alerts cannot be deleted, only disabled  |
-| `GET /alerts`, `GET /alerts/:id`     | viewer         | Filter by status, severity, rule                     |
-| `PATCH /alerts/:id`                  | analyst        | Acknowledge, resolve, assign                         |
-| `GET /alerts/stream`                 | viewer         | Server-Sent Events: `alert.created`, `alert.updated` |
-
-```bash
+# 4. watch alerts live in another terminal
 curl -N localhost:4000/api/v1/alerts/stream -H "Authorization: Bearer <accessToken>"
 ```
 
-The stream closes when the access token expires (clients reconnect with a fresh token), is capped at 5 per user,
-and sends a heartbeat every 25 s. The in-process bus works for a single API instance; see _Scaling_ in the plan.
+Run everything in containers (API + database): `docker compose up --build`.
+Run the **whole platform** (needs the three repos side by side): `docker compose -f docker-compose.full.yml up --build`.
 
-## Security decisions so far
+## Scripts
 
-- Alert evaluation failures never fail an ingest request (events are already saved); they are logged.
+| Command             | What it does                                     |
+| ------------------- | ------------------------------------------------ |
+| `npm run dev`       | Start with auto-reload                           |
+| `npm test`          | Vitest + supertest (needs PostgreSQL, see below) |
+| `npm run lint`      | ESLint                                           |
+| `npm run typecheck` | TypeScript without emitting                      |
+| `npm run build`     | Compile to `dist/`                               |
+| `npm run db:deploy` | Apply migrations                                 |
+| `npm run db:seed`   | Create first admin and default rules             |
 
-- API keys look like `snt_<prefix>_<secret>`. They can only _write_ data, are scope-limited, and can expire or be revoked.
-- Ingest authenticates and rate-limits **before** parsing its 1 MB body; unauthenticated callers never cost a large parse.
-- Ingest input is strictly validated (unknown fields rejected, size caps, no future timestamps, http/https URLs only).
-- Free-text search escapes SQL `LIKE` wildcards; all filters are parameterized by Prisma.
+**Tests** use a real PostgreSQL database (default `postgresql://sentinel:sentinel@localhost:5432/sentinel_test`,
+override with `TEST_DATABASE_URL`) because mocks hide constraint bugs. **They wipe that database**: never point it at real data.
 
-- Passwords are hashed with **argon2id**; unknown-email logins still run a dummy hash so timing does not reveal accounts.
-- Refresh tokens are random 256-bit values stored **only as SHA-256 hashes**, in an `httpOnly; SameSite=Strict` cookie scoped to `/api/v1/auth`.
-- JWT verification pins `HS256`, and the user is re-loaded from the database per request, so deactivation and role changes apply instantly.
-- The audit log is append-only, enforced by a database trigger, and never stores passwords.
-- Roles are checked by `requireRole` (deny by default); the whole users router is admin-only.
+```bash
+DATABASE_URL=postgresql://sentinel:sentinel@localhost:5432/sentinel_test npm run db:deploy   # once
+npm test
+```
 
-- Config is validated at startup (zod); the process refuses to start if it is invalid.
-- `helmet` with a strict JSON-API CSP (`default-src 'none'`), no `X-Powered-By`.
-- CORS allowlist with credentials; a wildcard origin is rejected at startup.
-- 100 kb JSON body limit; one error shape; no stack traces or internals in responses.
-- Request ids are validated before use, so clients cannot inject into logs; secrets are redacted from logs.
-- Docker image runs as a non-root user; secrets come from the environment and are never committed.
+## API overview
+
+Interactive docs: **`/docs`** (Swagger UI), spec: `/api/v1/openapi.json`. Both are generated from the same zod schemas that
+validate requests, and are off in production unless `ENABLE_DOCS=true`. Roles are cumulative: **admin > analyst > viewer**.
+
+| Area      | Endpoints                                                                                  | Access                                  |
+| --------- | ------------------------------------------------------------------------------------------ | --------------------------------------- |
+| Health    | `GET /health`, `GET /ready`                                                                | public                                  |
+| Auth      | `POST /auth/register` (off by default), `login`, `refresh`, `logout`, `GET /auth/me`       | public / cookie / viewer                |
+| Users     | `GET /users`, `PATCH /users/:id`                                                           | admin                                   |
+| API keys  | `GET/POST /api-keys`, `DELETE /api-keys/:id`                                               | admin                                   |
+| Ingest    | `POST /ingest/events`, `POST /ingest/scans`                                                | API key (`events:write`, `scans:write`) |
+| Events    | `GET /events`, `/events/:id`, `/events/stats`                                              | viewer                                  |
+| Rules     | `GET /alert-rules`; `POST/PATCH/DELETE`                                                    | viewer; admin                           |
+| Alerts    | `GET /alerts`, `/alerts/:id`, `/alerts/stream` (SSE); `PATCH /alerts/:id`                  | viewer; analyst                         |
+| Incidents | `GET /incidents`, `/incidents/:id`; `POST/PATCH`, `POST /:id/timeline`, `POST /:id/alerts` | viewer; analyst                         |
+| Scans     | `GET /scans`, `/scans/:id`                                                                 | viewer                                  |
+| Export    | `GET /export/incidents/:id` (for the scanner's post-mortem)                                | API key (`incidents:read`)              |
+| Audit     | `GET /audit-logs`                                                                          | admin                                   |
+
+Lists return `{ data, pagination: { page, pageSize, total, totalPages } }` (offset pagination, `pageSize` max 100).
+Errors always look like `{ error: { code, message, details?, requestId } }`.
+
+## Project structure
+
+```
+src/
+  app.ts, server.ts        app factory (testable, no listen) and process entry
+  config/env.ts            zod-validated environment: fails fast on bad config
+  lib/                     errors, logger, jwt, crypto, password, apiKey, pagination, openapi
+  middleware/              authenticate, requireRole, apiKeyAuth, validate, rateLimiters, errorHandler, requestId
+  modules/<feature>/       *.routes.ts (HTTP), *.service.ts (logic), *.schemas.ts (zod)
+    auth, users, apiKeys, ingest, events, rules, alerts (engine, bus, sse), incidents, scans, audit, docs, health
+prisma/                    schema.prisma + migrations (incl. hand-written partial index and audit trigger)
+tests/                     unit/ (no DB) and integration/ (supertest + real PostgreSQL)
+```
+
+## Design decisions
+
+- **Express + services, not NestJS:** fewer concepts; routes handle HTTP, services hold logic and know nothing about Express.
+- **Rules engine runs inside the ingest request** and evaluates per (rule, group), so a burst produces one alert. Failures never lose the ingested data.
+- **One active alert per rule+key**, enforced by a PostgreSQL partial unique index, so concurrent requests cannot create duplicates.
+- **SSE instead of WebSocket:** alerts only flow server → client; it is plain HTTP and proxy friendly.
+- **Self-monitoring:** failed logins to Sentinel itself become events, so the brute-force rule protects the API too.
+- **Scaling path:** the in-memory rate limiter and `alertBus` suit one instance. For several, use a Redis rate-limit store and Postgres `LISTEN/NOTIFY` or Redis pub/sub, and move rule evaluation to a queue.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) (reporting + deployment checklist) and [THREAT_MODEL.md](THREAT_MODEL.md)
+(STRIDE analysis, OWASP Top 10 2025 mapping, residual risks). Highlights: argon2id, rotating refresh tokens with
+theft detection, hashed API keys with scopes, strict input validation, rate limits, append-only audit log, strict CSP.
+
+The approved plan for all three repositories is in [docs/PLAN.md](docs/PLAN.md).
 
 ## Screenshots
 
-_Added once the dashboard is built._
+_Added once the dashboard is built: live alert feed, events table, incident timeline, Swagger UI._

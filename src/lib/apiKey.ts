@@ -7,7 +7,9 @@ import { randomToken, sha256 } from './crypto.js';
 const KEY_PREFIX = 'snt_';
 const PREFIX_LENGTH = 8;
 
-export const API_KEY_SCOPES = ['events:write', 'scans:write'] as const;
+// events:write / scans:write let a key push data in. incidents:read lets the scanner's
+// post-mortem generator pull ONE incident out (GET /export/incidents/:id) and nothing else.
+export const API_KEY_SCOPES = ['events:write', 'scans:write', 'incidents:read'] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 export function generateApiKey() {

@@ -15,6 +15,10 @@ import { createScansRouter } from './modules/scans/scans.routes.js';
 import { createAlertsRouter } from './modules/alerts/alerts.routes.js';
 import { createEventPipeline } from './modules/alerts/pipeline.js';
 import { createRulesRouter } from './modules/rules/rules.routes.js';
+import { createAuditRouter } from './modules/audit/audit.routes.js';
+import { createExportRouter } from './modules/incidents/export.routes.js';
+import { createIncidentsRouter } from './modules/incidents/incidents.routes.js';
+import { createDocsRouter } from './modules/docs/docs.routes.js';
 import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createUsersRouter } from './modules/users/users.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
@@ -61,6 +65,9 @@ export function createApp(env: Env, logger: Logger, options: { sseHeartbeatMs?: 
   // Small body limit by default; routes that legitimately need more (batch ingest) opt in.
   app.use(express.json({ limit: '100kb' }));
 
+  // API documentation: on by default in dev, off in production unless ENABLE_DOCS=true.
+  if (env.docsEnabled) app.use(createDocsRouter());
+
   app.use('/api/v1', healthRouter);
   app.use('/api/v1/auth', createAuthRouter(env, limiters.login, pipeline));
   app.use('/api/v1/users', createUsersRouter(env));
@@ -68,6 +75,9 @@ export function createApp(env: Env, logger: Logger, options: { sseHeartbeatMs?: 
   app.use('/api/v1/events', createEventsRouter(env));
   app.use('/api/v1/scans', createScansRouter(env));
   app.use('/api/v1/alert-rules', createRulesRouter(env));
+  app.use('/api/v1/incidents', createIncidentsRouter(env));
+  app.use('/api/v1/audit-logs', createAuditRouter(env));
+  app.use('/api/v1/export', createExportRouter());
   app.use('/api/v1/alerts', createAlertsRouter(env, { heartbeatMs: options.sseHeartbeatMs }));
 
   app.use(notFoundHandler);
