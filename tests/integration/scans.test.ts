@@ -67,4 +67,26 @@ describe('scan reports', () => {
         .status,
     ).toBe(404);
   });
+
+  it('filters the list by exact target, so a target history can be charted', async () => {
+    await createUser('viewer@example.com');
+    const { accessToken } = await loginAs(app, 'viewer@example.com');
+    const auth = { Authorization: `Bearer ${accessToken}` };
+    const base = { scannerVersion: '0.1.0', startedAt: new Date(), finishedAt: new Date() };
+    await prisma.scan.create({ data: { ...base, target: 'https://a.example/' } });
+    await prisma.scan.create({ data: { ...base, target: 'https://a.example/' } });
+    await prisma.scan.create({ data: { ...base, target: 'https://b.example/' } });
+
+    const filtered = await request(app)
+      .get('/api/v1/scans')
+      .query({ target: 'https://a.example/' })
+      .set(auth);
+    expect(filtered.body.pagination.total).toBe(2);
+    expect(
+      filtered.body.data.every((s: { target: string }) => s.target === 'https://a.example/'),
+    ).toBe(true);
+
+    const all = await request(app).get('/api/v1/scans').set(auth);
+    expect(all.body.pagination.total).toBe(3);
+  });
 });

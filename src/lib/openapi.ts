@@ -13,6 +13,7 @@ import {
   updateIncidentBody,
 } from '../modules/incidents/incidents.schemas.js';
 import { ingestEventsBody, ingestScanBody } from '../modules/ingest/ingest.schemas.js';
+import { listScansQuery } from '../modules/scans/scans.schemas.js';
 import { createRuleBody, updateRuleBody } from '../modules/rules/rules.routes.js';
 import { updateUserBody } from '../modules/users/users.routes.js';
 import { paginationQuery } from './pagination.js';
@@ -356,11 +357,11 @@ export const operations: Operation[] = [
   op({
     method: 'get',
     path: '/scans',
-    summary: 'List scans',
+    summary: 'List scans (optionally only those of one exact target)',
     tag: 'Scans',
     auth: 'bearer',
     role: 'VIEWER',
-    query: paginationQuery,
+    query: listScansQuery,
     returns: '{ data: Scan[], pagination }',
   }),
   op({
