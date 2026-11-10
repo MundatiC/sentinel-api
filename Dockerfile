@@ -3,7 +3,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci
+COPY prisma.config.ts ./
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/build npm ci
 COPY tsconfig*.json ./
 COPY src ./src
 RUN npm run build
@@ -14,8 +15,10 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 # `npm ci` runs the postinstall hook, which generates the Prisma client from ./prisma.
-RUN npm ci --omit=dev && npm cache clean --force
+# generate never connects; Prisma 7 just needs the variable to exist.
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/build npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 # Run as the unprivileged "node" user that ships with the image, never as root.
 USER node
