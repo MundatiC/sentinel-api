@@ -47,6 +47,14 @@ export function createApp(env: Env, logger: Logger, options: { sseHeartbeatMs?: 
     }),
   );
 
+  // Every API response is private (tokens, user data, security events). `no-store` stops any browser,
+  // proxy or CDN in front of us (e.g. a Vercel rewrite) from keeping a copy. The SSE route sets its own
+  // streaming headers, which replace this one.
+  app.use('/api/v1', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
   // CORS allowlist: only the configured dashboard origin(s) may call us from a browser.
   // `credentials: true` is required so the browser sends the refresh-token cookie.
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: true }));
