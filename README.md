@@ -82,15 +82,27 @@ Run the **whole platform** (needs the three repos side by side): `docker compose
 
 ## Scripts
 
-| Command             | What it does                                     |
-| ------------------- | ------------------------------------------------ |
-| `npm run dev`       | Start with auto-reload                           |
-| `npm test`          | Vitest + supertest (needs PostgreSQL, see below) |
-| `npm run lint`      | ESLint                                           |
-| `npm run typecheck` | TypeScript without emitting                      |
-| `npm run build`     | Compile to `dist/`                               |
-| `npm run db:deploy` | Apply migrations                                 |
-| `npm run db:seed`   | Create first admin and default rules             |
+| Command                | What it does                                     |
+| ---------------------- | ------------------------------------------------ |
+| `npm run dev`          | Start with auto-reload                           |
+| `npm test`             | Vitest + supertest (needs PostgreSQL, see below) |
+| `npm run lint`         | ESLint                                           |
+| `npm run typecheck`    | TypeScript without emitting                      |
+| `npm run build`        | Compile to `dist/`                               |
+| `npm run db:deploy`    | Apply migrations                                 |
+| `npm run db:seed`      | Create first admin and default rules             |
+| `npm run db:seed:demo` | Demo data for screenshots (see below)            |
+
+**Demo data.** An empty dashboard makes poor screenshots, so `db:seed:demo` adds realistic events, alerts in every
+status, one incident with a timeline, and scan history that improves over time. It is safe next to real data: events
+carry `metadata.demo`, scans use the reserved domain `*.demo.example`, IPs come from the documentation ranges (RFC 5737),
+and the demo analyst account has a random password nobody knows. Re-running refreshes the timestamps.
+
+```bash
+# with the full compose stack running (from this folder)
+docker compose -f docker-compose.full.yml run --build --rm seed node dist/scripts/seed-demo.js --confirm
+docker compose -f docker-compose.full.yml run --rm seed node dist/scripts/seed-demo.js --reset   # removes only the demo data
+```
 
 **Tests** use a real PostgreSQL database (default `postgresql://sentinel:sentinel@localhost:5432/sentinel_test`,
 override with `TEST_DATABASE_URL`) because mocks hide constraint bugs. **They wipe that database**: never point it at real data.
