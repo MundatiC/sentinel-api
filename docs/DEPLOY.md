@@ -96,21 +96,21 @@ fraction of a second ([pricing](https://neon.com/pricing)).
 2. Instance type **Free**. Health check path: `/api/v1/health`.
 3. Environment variables:
 
-   | Variable             | Value                                                                                |
-   | -------------------- | ------------------------------------------------------------------------------------ |
-   | `NODE_ENV`           | `production`                                                                         |
-   | `DATABASE_URL`       | the Neon direct string                                                               |
-   | `JWT_ACCESS_SECRET`  | 32+ random characters (never reuse your local one)                                   |
-   | `ALLOW_REGISTRATION` | `false`                                                                              |
-   | `ENABLE_DOCS`        | `true` if you want a public `/docs` page, otherwise leave unset                      |
-   | `CORS_ORIGINS`       | `https://<your-dashboard>.vercel.app` (not used in proxy mode, but keep it explicit) |
-   | `TRUST_PROXY`        | `2` (Render's load balancer plus Vercel's proxy), then check the next point          |
+   | Variable              | Value                                                                                |
+   | --------------------- | ------------------------------------------------------------------------------------ |
+   | `NODE_ENV`            | `production`                                                                         |
+   | `DATABASE_URL`        | the Neon direct string                                                               |
+   | `JWT_ACCESS_SECRET`   | 32+ random characters (never reuse your local one)                                   |
+   | `ALLOW_REGISTRATION`  | `false`                                                                              |
+   | `ENABLE_DOCS`         | `true` if you want a public `/docs` page, otherwise leave unset                      |
+   | `CORS_ORIGINS`        | `https://<your-dashboard>.vercel.app` (not used in proxy mode, but keep it explicit) |
+   | `TRUST_PROXY`         | `3` (Render's load balancer chain; see "Client IPs" below)                           |
+   | `PROXY_SHARED_SECRET` | 32+ random characters; the **same** value goes in Vercel (see step 3)                |
 
    `PORT` is set by Render and the API reads it. Cookies get the `Secure` flag automatically in production.
 
-4. **Check client IPs.** Rate limits and the audit log use the client IP. After the first login, open
-   Admin > Audit Log: the IP should be yours. If it shows a Render or Vercel address, adjust `TRUST_PROXY`
-   (try `1` or `3`), otherwise all visitors share one rate-limit bucket.
+4. **Check client IPs.** Rate limits and the audit log use the client IP, so it has to be right.
+   See [Client IPs](#client-ips-behind-vercel-and-render) below; verify in Admin > Audit Log after your first login.
 5. **Create the admin and default rules.** The free plan has no shell, so run the seed from your own
    machine against Neon (the credentials stay in your shell, never in git):
 
@@ -129,10 +129,11 @@ fraction of a second ([pricing](https://neon.com/pricing)).
 1. Import `MundatiC/sentinel-dashboard` (Hobby plan is for non-commercial use).
 2. Environment variables (both are read at **build** time; after changing them, redeploy):
 
-   | Variable              | Value                                           |
-   | --------------------- | ----------------------------------------------- |
-   | `NEXT_PUBLIC_API_URL` | `/`                                             |
-   | `API_PROXY_TARGET`    | `https://<your-api>.onrender.com` (origin only) |
+   | Variable              | Value                                                                               |
+   | --------------------- | ----------------------------------------------------------------------------------- |
+   | `NEXT_PUBLIC_API_URL` | `/`                                                                                 |
+   | `API_PROXY_TARGET`    | `https://<your-api>.onrender.com` (origin only)                                     |
+   | `PROXY_SHARED_SECRET` | the same 32+ character value as on Render (read at runtime; redeploy after setting) |
 
 3. Deploy, open the site, sign in with the seeded admin.
 
@@ -156,6 +157,37 @@ dashboard marks proxied paths uncacheable.
   export SENTINEL_API_KEY=snt_...
   sentinel-scan web https://your-own-site.example/ --i-own-this --send
   ```
+
+### Client IPs behind Vercel and Render
+
+Rate limits and the audit log key on the client IP. Two things make that hard here:
+
+- Express's `TRUST_PROXY=<n>` means "trust the last n hops of `X-Forwarded-For`". Express's own docs warn it is
+  only safe when there are **no multiple, different-length paths** to the app. Here there are two: visitors
+  through the dashboard proxy (one extra hop: Vercel) and clients calling the API's URL directly (the scanner,
+  curl). A value that credits dashboard visitors correctly lets a direct caller forge their IP, and with it dodge
+  the IP-based login limit.
+- Vercel overwrites `X-Forwarded-For` with the real visitor IP on its edge, which makes it a trustworthy source
+  for the dashboard, but Render sees Vercel's outbound address, not the visitor's.
+
+So the two are combined:
+
+1. `TRUST_PROXY` is set to the hops that **every** route shares (Render's own chain). Observed for a visitor going
+   through the dashboard on Render: `2` records a Cloudflare edge address, `3` Vercel's outbound address, `4` the
+   visitor. A direct caller has one hop fewer, so `3` should give their real address: use `3` and confirm with the
+   checks below.
+2. The dashboard's proxy sends the visitor IP it got from Vercel in `X-Sentinel-Client-IP`, with
+   `X-Sentinel-Proxy-Secret`. The API only honours that header when the secret matches
+   (`PROXY_SHARED_SECRET`, compared in constant time), so a forged header from a direct caller is ignored.
+
+Verify (all with fake credentials, from a machine whose public IP you know; the audit log is Admin > Audit Log):
+
+- Sign in or fail a login **through the dashboard**: the audit IP is your public IP.
+- `curl` a failed login **directly at the API**: the audit IP is your public IP.
+- The same `curl` with `-H 'X-Forwarded-For: 198.51.100.77'` and with `-H 'X-Sentinel-Client-IP: 198.51.100.77'`
+  must **not** record `198.51.100.77`.
+
+If you skip `PROXY_SHARED_SECRET`, the API still works; it just records whichever address `TRUST_PROXY` yields.
 
 ### Cold starts and limits
 

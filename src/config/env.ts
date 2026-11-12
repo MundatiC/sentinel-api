@@ -20,6 +20,11 @@ const envSchema = z.object({
       message: 'CORS_ORIGINS must list explicit origins; "*" is not allowed with credentials',
     }),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  // Shared with the dashboard's proxy (see src/middleware/verifiedProxyIp.ts). Unset = feature off.
+  PROXY_SHARED_SECRET: z
+    .string()
+    .min(32, 'PROXY_SHARED_SECRET must be at least 32 characters')
+    .optional(),
   DATABASE_URL: z.string().min(1),
 
   // Signing key for access tokens. 32+ characters is enforced so nobody ships "secret".
