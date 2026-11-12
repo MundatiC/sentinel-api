@@ -7,6 +7,7 @@ import type { Env } from './config/env.js';
 import type { Logger } from './lib/logger.js';
 import { createErrorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createRateLimiters } from './middleware/rateLimiters.js';
+import { verifiedProxyIp } from './middleware/verifiedProxyIp.js';
 import { requestId } from './middleware/requestId.js';
 import { createApiKeysRouter } from './modules/apiKeys/apiKeys.routes.js';
 import { createEventsRouter } from './modules/events/events.routes.js';
@@ -30,6 +31,7 @@ export function createApp(env: Env, logger: Logger, options: { sseHeartbeatMs?: 
 
   app.disable('x-powered-by'); // don't advertise "Express" to scanners
   app.set('trust proxy', env.TRUST_PROXY);
+  app.use(verifiedProxyIp(env.PROXY_SHARED_SECRET));
 
   app.use(requestId);
   app.use(pinoHttp({ logger, genReqId: (_req, res) => res.locals.requestId }));

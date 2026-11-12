@@ -42,6 +42,16 @@ describe('parseEnv', () => {
     expect(parseEnv({ ...base, NODE_ENV: 'development' }).cookieSecure).toBe(false);
   });
 
+  it('requires a long PROXY_SHARED_SECRET when one is given, and allows none', () => {
+    expect(parseEnv(base).PROXY_SHARED_SECRET).toBeUndefined();
+    expect(() => parseEnv({ ...base, PROXY_SHARED_SECRET: 'short' })).toThrow(
+      /PROXY_SHARED_SECRET/,
+    );
+    expect(parseEnv({ ...base, PROXY_SHARED_SECRET: 'z'.repeat(32) }).PROXY_SHARED_SECRET).toBe(
+      'z'.repeat(32),
+    );
+  });
+
   it('rejects an out-of-range port', () => {
     expect(() => parseEnv({ ...base, PORT: '99999' })).toThrow(/PORT/);
   });
