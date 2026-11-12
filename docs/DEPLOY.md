@@ -174,8 +174,9 @@ So the two are combined:
 
 1. `TRUST_PROXY` is set to the hops that **every** route shares (Render's own chain). Observed for a visitor going
    through the dashboard on Render: `2` records a Cloudflare edge address, `3` Vercel's outbound address, `4` the
-   visitor. A direct caller has one hop fewer, so `3` should give their real address: use `3` and confirm with the
-   checks below.
+   visitor. A direct caller has one hop fewer, so `3` is their real address, and a forged `X-Forwarded-For` is
+   ignored (checked on the live deployment). `4` would credit dashboard visitors correctly but let a direct caller
+   forge their IP, which is why the vouching header below exists. Use `3`, and confirm with the checks below.
 2. The dashboard's proxy sends the visitor IP it got from Vercel in `X-Sentinel-Client-IP`, with
    `X-Sentinel-Proxy-Secret`. The API only honours that header when the secret matches
    (`PROXY_SHARED_SECRET`, compared in constant time), so a forged header from a direct caller is ignored.
