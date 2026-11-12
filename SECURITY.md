@@ -33,7 +33,7 @@ Only the latest commit on `main` receives security fixes.
 | Access control    | Deny by default; role checked on every route; user re-loaded from the DB on each request so changes apply instantly                    |
 | Machine access    | Scoped API keys, stored only as SHA-256 hashes, shown once, revocable, expirable                                                       |
 | Input             | Every body, query and parameter validated with zod (strict: unknown fields rejected); parameterized queries only                       |
-| Abuse             | Rate limits per IP, per login+email and per API key; body size limits; capped live connections                                         |
+| Abuse             | Rate limits per IP, per login+email, per account (failed logins, all IPs) and per API key; body size limits; capped live connections   |
 | Secrets           | Only from environment variables; startup fails on weak or missing secrets; logs redact tokens, cookies and passwords                   |
 | Accountability    | Append-only audit log (enforced by a database trigger) for every privileged action                                                     |
 | Transport/headers | helmet with `default-src 'none'`, CORS allowlist, `X-Powered-By` removed                                                               |
