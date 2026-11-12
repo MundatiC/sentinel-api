@@ -25,6 +25,13 @@ describe('security headers', () => {
   });
 });
 
+describe('caching', () => {
+  it('tells browsers, proxies and CDNs never to store API responses', async () => {
+    const res = await request(app).get('/api/v1/health');
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+});
+
 describe('CORS', () => {
   it('allows the configured origin with credentials', async () => {
     const res = await request(app).get('/api/v1/health').set('Origin', 'http://localhost:3000');
