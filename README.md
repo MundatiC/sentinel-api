@@ -80,6 +80,9 @@ curl -N localhost:4000/api/v1/alerts/stream -H "Authorization: Bearer <accessTok
 Run everything in containers (API + database): `docker compose up --build`.
 Run the **whole platform** (needs the three repos side by side): `docker compose -f docker-compose.full.yml up --build`.
 
+**Deploying it** (free-tier Neon + Render + Vercel, or one VPS): see [docs/DEPLOY.md](docs/DEPLOY.md). It also explains
+why the refresh cookie is `SameSite=Strict` and how the dashboard stays first-party when the two are hosted separately.
+
 ## Scripts
 
 | Command                | What it does                                     |
