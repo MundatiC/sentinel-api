@@ -47,7 +47,8 @@ const envSchema = z.object({
 
   // Rate limits (requests per window). Configurable so tests and load tests can change them.
   GLOBAL_RATE_LIMIT: z.coerce.number().int().min(1).default(300),
-  LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(10),
+  LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(10), // per IP+email
+  ACCOUNT_LOGIN_RATE_LIMIT: z.coerce.number().int().min(1).default(30), // failures per email, all IPs
   INGEST_RATE_LIMIT: z.coerce.number().int().min(1).default(600), // per API key, per minute
   RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).default(15),
 });
