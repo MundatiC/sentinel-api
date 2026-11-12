@@ -168,4 +168,15 @@ The approved plan for all three repositories is in [docs/PLAN.md](docs/PLAN.md).
 
 ## Screenshots
 
-_Added once the dashboard is built: live alert feed, events table, incident timeline, Swagger UI._
+Interactive API docs at `/docs` (OpenAPI 3.1):
+
+![Swagger UI with the Sentinel API endpoint groups](docs/images/swagger-docs.jpg)
+
+Five failed logins from one IP in, one alert out:
+
+![Ingesting five failed-login events with curl](docs/images/ingest-curl.svg)
+
+What the API feeds in [sentinel-dashboard](https://github.com/MundatiC/sentinel-dashboard): the live alert feed and an incident timeline.
+
+![Dashboard alert feed](docs/images/dashboard-alerts.jpg)
+![Dashboard incident timeline](docs/images/dashboard-incident.jpg)
